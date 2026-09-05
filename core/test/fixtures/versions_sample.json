@@ -1,0 +1,14 @@
+{
+  "1.19.0.6": {
+    "pe_timestamp": 1738329600,
+    "text_sha256":  "aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff66667777888899990000",
+    "tested": true,
+    "auto_disable": []
+  },
+  "1.19.0.7": {
+    "pe_timestamp": 1740921600,
+    "text_sha256":  "1111aaaa2222bbbb3333cccc4444dddd5555eeee6666ffff7777000088889999",
+    "tested": false,
+    "auto_disable": ["accel_ai_tick"]
+  }
+}

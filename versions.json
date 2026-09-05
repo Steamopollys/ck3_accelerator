@@ -1,0 +1,14 @@
+{
+  "1.19.0.6": {
+    "pe_timestamp": 1779180642,
+    "text_sha256":  "c8e863f6cced4e04f97baeea299a730c30d81b525733e7f8735dd1904e32c879",
+    "tested": true,
+    "auto_disable": []
+  },
+  "1.19.0.6-r20260602": {
+    "pe_timestamp": 1780412013,
+    "text_sha256":  "bce0cf8e71ba81ae879577cef4a1dfe78d309d1ff93dc8cdba04f670b207d4b0",
+    "tested": false,
+    "auto_disable": []
+  }
+}

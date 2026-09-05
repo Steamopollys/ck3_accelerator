@@ -1,0 +1,117 @@
+name: release
+
+# Build, package, and publish a GitHub Release whenever a version tag is pushed:
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# Every release gets SHA-256 checksums and a Sigstore build-provenance attestation
+# (both free, zero setup, verify with `gh attest verify`). Authenticode signing
+# (the durable fix for the Defender/SmartScreen false positive) is wired as an
+# optional step that turns on once SignPath Foundation is configured, see below.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write       # create the release
+  id-token: write       # OIDC token for the provenance attestation
+  attestations: write   # write the attestation
+
+jobs:
+  release:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # third_party/* are pinned submodules
+
+      - name: Configure
+        run: cmake --preset default
+
+      - name: Build (Release)
+        run: cmake --build --preset default
+
+      - name: Unit tests
+        run: ctest --test-dir build/default -C Release --output-on-failure
+
+      - name: Stage release bundle
+        id: stage
+        shell: pwsh
+        run: |
+          $ver   = "${{ github.ref_name }}"
+          $name  = "ck3-accelerator-$ver"
+          $stage = "dist/$name"
+          New-Item -ItemType Directory -Force "$stage/plugins" | Out-Null
+
+          # Runtime files, laid out exactly as they go into CK3's binaries folder.
+          Copy-Item build/default/proxy_dxc/Release/dxcompiler.dll "$stage/"
+          Copy-Item build/default/core/Release/ck3accel_core.dll   "$stage/"
+          Copy-Item build/default/plugins/accel_family_lists/Release/accel_family_lists.dll "$stage/plugins/"
+          Copy-Item build/default/plugins/accel_family_cache/Release/accel_family_cache.dll "$stage/plugins/"
+          Copy-Item build/default/plugins/accel_tick_cache/Release/accel_tick_cache.dll     "$stage/plugins/"
+          Copy-Item packaging/config.toml       "$stage/"
+          Copy-Item packaging/family_cache.conf "$stage/"
+          Copy-Item packaging/tick_cache.conf   "$stage/"
+          Copy-Item versions.json               "$stage/"
+          Copy-Item README.md                   "$stage/"
+          Copy-Item LICENSE                     "$stage/"
+
+          "name=$name"     >> $env:GITHUB_OUTPUT
+          "stage=$stage"   >> $env:GITHUB_OUTPUT
+
+      # --- OPTIONAL: Authenticode-sign the DLLs via SignPath Foundation (free for OSS) ----------
+      # This is the real fix for the antivirus/SmartScreen false positive. It stays skipped until
+      # the project is onboarded and the secret is set, so the workflow works today without it.
+      #   1. Apply: https://about.signpath.io/product/open-source
+      #   2. In SignPath create a project + signing policy for this repo.
+      #   3. Add repo secret  SIGNPATH_API_TOKEN  and repo variables
+      #      SIGNPATH_ORG_ID / SIGNPATH_PROJECT_SLUG / SIGNPATH_POLICY_SLUG.
+      #   4. Uncomment the step below (it signs the DLLs in the stage dir before they're zipped).
+      #
+      # - name: Authenticode sign (SignPath)
+      #   if: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
+      #   uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+      #     project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+      #     signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+      #     artifact-configuration-slug: dlls
+      #     wait-for-completion: true
+
+      - name: Zip + checksums
+        id: pack
+        shell: pwsh
+        run: |
+          $name = "${{ steps.stage.outputs.name }}"
+          $zip  = "dist/$name.zip"
+          Compress-Archive -Path "${{ steps.stage.outputs.stage }}/*" -DestinationPath $zip -Force
+          # SHA-256 for the zip and every DLL, so users can verify what they run.
+          $lines = @()
+          Get-ChildItem -Recurse "${{ steps.stage.outputs.stage }}" -Filter *.dll | ForEach-Object {
+            $lines += "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          }
+          $lines += "$((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower())  $name.zip"
+          $lines | Set-Content -Encoding ascii "dist/SHA256SUMS.txt"
+          Get-Content "dist/SHA256SUMS.txt"
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Build provenance attestation
+        # Sigstore attestations aren't available on private user repos; skip while private,
+        # auto-enables once the repo is public.
+        if: ${{ github.event.repository.private == false }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ steps.stage.outputs.stage }}/**/*.dll
+            ${{ steps.pack.outputs.zip }}
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "${{ steps.pack.outputs.zip }}" "dist/SHA256SUMS.txt" `
+            --title "${{ github.ref_name }}" `
+            --generate-notes

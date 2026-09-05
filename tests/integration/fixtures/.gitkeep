@@ -1,0 +1,3 @@
+# This file keeps the fixtures/ directory in the repository.
+# Drop your CK3 save files here (see README.md).
+# They are git-ignored (*.ck3) to avoid redistributing Paradox-owned bytes.

@@ -1,0 +1,10 @@
+# accel_attrib_probe: copy next to ck3accel_core.dll as attrib_probe.conf
+attrib_probe = true          # master switch
+nodes = true                 # per-trigger-node counts + cycles
+repeat = true                # (node, entity) repeat rate + consistency
+freeze_stacks = true         # stack-sample sim thread on long days
+ui_stacks = true             # stack-sample main thread on message-pump stalls
+freeze_threshold_ms = 150
+ui_threshold_ms = 150
+top_nodes = 100
+dump_min_evals = 2000000

@@ -1,0 +1,11 @@
+# accel_demo DEMO (copy next to ck3accel_core.dll as demo.conf). Off unless demo = true.
+#
+# Overrides ONE engine trigger class's return value: proof the framework can change
+# gameplay, not only speed. NOT checksum-neutral: DISABLES Ironman achievements.
+# Single-player throwaway saves only. Not for real play.
+demo = true
+
+# trigger class to override (demangled-name prefix) and the value to force.
+# default: every has_trait returns true. Try other leaf triggers, e.g. CIsIncapableTrigger.
+class = CHasTraitTrigger
+force = true

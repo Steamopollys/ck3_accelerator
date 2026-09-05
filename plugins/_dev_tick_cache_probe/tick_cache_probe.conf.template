@@ -1,0 +1,3 @@
+# accel_tick_cache_probe: observe-only, measures tick trigger-cache viability.
+# Copy next to ck3accel_core.dll as tick_cache_probe.conf. Off unless set true.
+tick_cache_probe = true

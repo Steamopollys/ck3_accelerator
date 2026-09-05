@@ -1,0 +1,46 @@
+# Build output
+build/
+out/
+*.obj
+*.lib
+*.pdb
+*.dll
+*.exe
+*.exp
+*.idb
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Testing/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+
+# Local config (template + packaging config are checked in; a concrete root config is not)
+/config.toml
+
+# Logs
+logs/
+*.log
+
+# Integration test fixtures (user-provided CK3 saves, never redistribute)
+tests/integration/fixtures/*.ck3
+
+# Python caches (pytest harness)
+__pycache__/
+*.pyc
+
+# OS junk
+Thumbs.db
+.DS_Store
+tools/re/cache/
+.vt_key_tmp
+virustotal.txt
+
+# Internal research notes / RE writeups, not published.
+docs/

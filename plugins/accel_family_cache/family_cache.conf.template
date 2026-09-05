@@ -1,0 +1,3 @@
+# accel_family_cache: copy next to ck3accel_core.dll as family_cache.conf.
+# per-frame family-list memoization (the character-window speedup). Off unless set true.
+family_cache = true

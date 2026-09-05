@@ -1,0 +1,101 @@
+# Signatures for ck3.exe build 1.19.0.6 "Scribe"
+#
+# Build identity (the core matches by live .text SHA-256; see versions.json):
+#   pe_timestamp: 1779180642  (0x6A0C2462)
+#   text_sha256 (live, post-loader): c8e863f6cced4e04f97baeea299a730c30d81b525733e7f8735dd1904e32c879
+#   ImageBase: 0x140000000
+#
+# NOTE on the SHA mismatch you may see when hashing the file statically: the core
+# hashes the .text section of the LIVE process (after the Windows loader applies
+# base relocations and resolves the import table), so its hash differs from a hash
+# of the raw on-disk bytes (statically the .text hashes to
+# 048b3a2a8a9b4238b005207b63f49cb2280ea4be26dc4a03824b03900ec83165). The PE
+# timestamp matches, and both signatures below resolve to a single, correct .text
+# match on this build. All wildcards (??) cover exactly the rel32 / RIP-disp32
+# operand bytes the loader rewrites, so the signatures survive relocation.
+#
+# Each signature is an IDA-style space-separated byte pattern; "??" = wildcard.
+# Verified UNIQUE: exactly one match across ck3.exe .text (own Python scan,
+# capstone + pefile, 2026-05-29).
+
+signatures:
+  - name: gamestate_decompress_wrapper
+    rva: 0x035BEAB0
+    found_via: >-
+      Live inflate probe showed the gamestate save-load path calling
+      zlib inflate from inside RVA 0x035BEAB0; static disassembly (capstone)
+      confirmed it is the stream->stream decompression pump. Sole caller at RVA
+      0x035BFC3C. Signature taken from the prologue through the distinctive
+      'mov ecx, 0x1BF0' (inflate_state alloc size) + alloc call fingerprint.
+    signature: >-
+      48 89 5C 24 10 44 89 4C 24 20 44 89 44 24 18 48 89 4C 24 08 55 56 57 41 54
+      41 55 41 56 41 57 48 8D 6C 24 D9 48 81 EC C0 00 00 00 45 8B E1 4C 8B EA 4C
+      8B F1 33 F6 48 89 75 A7 48 8D 05 ?? ?? ?? ?? 48 89 45 B7 48 89 75 C7 4C 8D
+      3D ?? ?? ?? ?? 4C 89 7D BF B9 F0 1B 00 00 E8 ?? ?? ?? ?? 48 8B D8
+    verified: unique   # exactly 1 match in .text, at RVA 0x035BEAB0
+    notes: >-
+      This is the function the accel_save_load plugin hooks. Confirmed contract
+      (static RE, cross-checked against a real .ck3 save file):
+
+      Prototype:
+        bool __fastcall decompress(void* reader   /* rcx */,
+                                   void* writer    /* rdx */,
+                                   uint32_t compressedSize /* r8d, arg3 */,
+                                   uint32_t expectedCrc32  /* r9d, arg4 */);
+
+      reader (rcx): first qword [reader+0x00] = vtable. Read method is vtable
+      slot [reader+0x20]:
+        uint32_t read(void* reader /*rcx*/, void* dst /*rdx*/, uint32_t n /*r8d*/);
+      The wrapper requests <=1 MiB chunks and sets z_stream.avail_in to the
+      REQUESTED size (it ignores read()'s return value, assuming full delivery).
+
+      writer (rdx): first qword [writer+0x00] = vtable. Write method is vtable
+      slot [writer+0x50]:
+        ?? write(void* writer /*rcx*/, const void* src /*rdx*/, uint32_t n /*r8d*/);
+      Called once per produced output chunk; return value ignored.
+
+      Stream format: RAW DEFLATE (windowBits -15). The internal inflate_state has
+      wrap = 0 (set at RVA 0x035BEB82; the inflate HEAD state at 0x035C443C jumps
+      straight to block decode when wrap == 0 -- no zlib/gzip header). Confirmed
+      empirically: CK3 .ck3 saves are a PKZIP container whose 'gamestate' entry is
+      method 8 (deflate); Python zlib.decompressobj(-15) decompresses it, while
+      zlib-wrapped decompression fails with 'incorrect header check'. => use
+      libdeflate_deflate_decompress (RAW), never libdeflate_zlib_decompress.
+
+      Return value: al = (crc32(0, decompressed_bytes) == expectedCrc32). The CRC
+      helper at RVA 0x035C0EA0 is zlib crc32 (init 0; same as libdeflate_crc32).
+      arg3/arg4 are the zip entry's compressed-size / CRC-32 fields (loaded by the
+      caller from [obj+0x14]/[obj+0x10] at RVA 0x035BFC3C). So this function IS the
+      save's load-integrity check. On a false return the caller (test al,al; je)
+      takes its decompression-failed cleanup path and aborts the load -- so
+      returning false WITHOUT writing is the engine's own safe failure mode and
+      never corrupts a save.
+
+  - name: zlib_inflate
+    rva: 0x035C4340
+    found_via: >-
+      Statically-linked zlib 1.2.11 inflate(z_stream* rcx, int edx) -> int.
+      Identified during decompression RE and used by the dev decompress probe; prologue
+      through the 'test rcx,rcx; je' guard, je rel32 wildcarded.
+    signature: >-
+      89 54 24 10 53 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 58 44 8B DA 4C 8B
+      E1 48 85 C9 0F 84 ?? ?? ?? ??
+    verified: unique   # exactly 1 match in .text, at RVA 0x035C4340
+    notes: >-
+      MSVC x64 ABI: rcx = z_stream*, edx = flush, returns int (0=Z_OK,
+      1=Z_STREAM_END, negative = error). Used only by the developer probe plugin;
+      the shipped accel_save_load plugin does NOT call inflate -- it decompresses
+      with libdeflate over a fully-buffered input. z_stream field offsets observed
+      on this build: next_in +0x00, avail_in +0x08, total_in +0x0C, next_out
+      +0x10, avail_out +0x18, total_out +0x1C, state* +0x28; inflate_state is
+      0x1BF0 bytes with state->wrap at +0x10.
+
+# Honest profiling (live probe, logs/probe_decompress.csv analysis):
+#   - The gamestate decompression runs in 1 MiB-in / 8 MiB-out chunks through the
+#     wrapper above. On a large COMPRESSED save it accounts for roughly ~640 ms of
+#     a ~15 s load (~4%). On an UNCOMPRESSED ("store", method 0) save it is ~0 ms.
+#   - libdeflate replaces only that decompression step; the dominant cost is the
+#     gamestate PARSER, not decompression. Expected wall-clock win is single-digit
+#     percent (~300-640 ms) at best, and zero on uncompressed saves. The value of
+#     this plugin is validating the hook/replace pipeline with byte-identical,
+#     CRC-verified output -- NOT a headline speedup. Safety > performance.

@@ -1,0 +1,9 @@
+[core]
+log_level = "debug"
+allow_untested_versions = true
+kill_switch = "Alt+K"
+telemetry = true
+
+[plugins]
+save_load = true
+ai_tick = false

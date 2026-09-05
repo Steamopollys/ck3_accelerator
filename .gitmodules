@@ -1,0 +1,21 @@
+[submodule "third_party/googletest"]
+	path = third_party/googletest
+	url = https://github.com/google/googletest
+[submodule "third_party/spdlog"]
+	path = third_party/spdlog
+	url = https://github.com/gabime/spdlog
+[submodule "third_party/tomlplusplus"]
+	path = third_party/tomlplusplus
+	url = https://github.com/marzer/tomlplusplus
+[submodule "third_party/picosha2"]
+	path = third_party/picosha2
+	url = https://github.com/okdshin/PicoSHA2
+	# Pinned to commit 161cb3fc4170fa7a3eca9e582cebd27cc4d1fe29 as of 2026-05-28; no upstream version tags.
+[submodule "third_party/minhook"]
+	path = third_party/minhook
+	url = https://github.com/TsudaKageyu/minhook
+	# Pinned to commit 05c06c5bbca226b72ffb40fc0caaef33bcaf6f74 as of 2026-05-29; no recent upstream version tags.
+[submodule "third_party/libdeflate"]
+	path = third_party/libdeflate
+	url = https://github.com/ebiggers/libdeflate
+	# Pinned to release tag v1.25 (commit c8c56a20f8f621e6a966b716b31f1dedab6a41e3) as of 2026-05-29.

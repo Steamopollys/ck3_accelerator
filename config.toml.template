@@ -1,0 +1,56 @@
+# CK3 Accelerator user config.
+# Drop next to ck3accel_core.dll in the install dir.
+
+[core]
+# log verbosity: trace, debug, info, warn, error, critical
+log_level = "info"
+
+# load plugins on untested CK3 builds (still shows a one-time warning).
+allow_untested_versions = false
+
+# panic hotkey: soft-disables every hook for the session (calls fall through to
+# stock CK3), no restart. Format: Ctrl/Shift/Alt + one of F1..F24, A..Z, 0..9.
+kill_switch = "Ctrl+Shift+F12"
+
+# local perf metrics: plugins append to logs/metrics.csv. Never sent anywhere
+# (no network code linked). Off by default; opt in for bug reports.
+telemetry = false
+
+# live log console window (all LOG_* output); debugging only.
+console = false
+
+[plugins]
+# per-plugin enable flags; unlisted plugins default off. Release defaults:
+# three optimizations on, save_load off. Single-player + Ironman, checksum-neutral.
+
+# O(N) hash-set dedup of the composite family scope lists (close/extended/
+# close_or_extended_family_member), identical output. Kills the family-size-squared
+# cost of birth events etc. for characters with thousands of relatives.
+accel_family_lists = true
+
+# per-frame memoization of those builders: huge-family character window ~15s to ~1s.
+# Needs family_cache.conf (family_cache = true) alongside this file.
+accel_family_cache = true
+
+# whitelisted pure-trigger result cache during the day-tick: only classes proven
+# pure over their scope (has_trait, is_ruler, doctrines, family relations, ...);
+# everything else re-evaluates. Flushed on every effect + tick boundary. Needs
+# tick_cache.conf (tick_cache = true). Co-loads with accel_family_cache via the
+# core's shared tick-epoch service.
+accel_tick_cache = true
+
+# off: near-zero benefit. Save decompression is ~4% of load time, zero on the
+# uncompressed autosaves/large saves CK3 stores that way. Swaps to libdeflate
+# behind a CRC fail-safe.
+accel_save_load = false
+
+# accel_decompress_probe = false
+# dev-only profiling probe: hooks zlib inflate, logs decompression stats to
+# logs\probe_decompress.csv. Not for normal play, omitted from release builds.
+# Uncomment and set true only when capturing a trace.
+
+# accel_sampler = false
+# dev-only sampling profiler: suspends CK3 threads, samples each RIP, attributes
+# it to a ck3.exe function, writes a hot-function histogram to logs\sampler.csv.
+# Read-only (no hooks). Not for normal play, omitted from release builds.
+# Uncomment and set true only when capturing a late-game profile.
