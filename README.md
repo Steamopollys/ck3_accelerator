@@ -14,6 +14,28 @@ Late-game and large-family saves are where CK3 hurts, so that's the target. Thre
 
 The release ships with all three on. Turn any off in `config.toml`.
 
+### The family-list fix, concretely
+
+The original dedup does, for every character, a full scan of the output list before appending:
+
+```
+for every character:
+    scan the whole output list
+    if the character isn't already in it:
+        append it
+```
+
+That's O(N²): the scan grows with the list, so a family of N relatives costs on the order of N² comparisons. The replacement keeps a hash set, so the "already in it?" check is O(1) and the whole build is O(N):
+
+```
+if (!set.contains(character)) {
+    set.insert(character);
+    list.push_back(character);
+}
+```
+
+Same output list, same order. For a handful of relatives the difference is nothing; for thousands it's the difference between a stall and an instant build.
+
 ## Won't it break my Ironman save?
 
 No. That's the rule everything is built around: every cache is **checksum-neutral**, returning exactly what stock CK3 would compute. Cached trigger results are tied to an epoch that's invalidated on every script effect and tick boundary, so nothing stale survives a state change, and any trigger caught mutating its scope is dropped from the cache. If a result could ever diverge from vanilla, it isn't cached.
