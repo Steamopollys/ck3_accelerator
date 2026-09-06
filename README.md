@@ -36,6 +36,27 @@ if (!set.contains(character)) {
 
 Same output list, same order. For a handful of relatives the difference is nothing; for thousands it's the difference between a stall and an instant build.
 
+### The character-window cache, concretely
+
+Opening a character sheet runs the portrait clothing rules, and each of the ~300 clothing modifiers checks the same `any_close_family_member` on the same character. Stock rebuilds that list every time:
+
+```
+for each of the ~300 clothing checks on one character:
+    build the close-family list from scratch
+```
+
+The cache keys the built list on (character, which list, filter) and remembers it for the current frame:
+
+```
+key = (character, list type, filter)
+if key was already built this frame:
+    replay the cached list
+else:
+    build it once, store it under key
+```
+
+So ~300 rebuilds collapse to one real build plus cheap replays, which is what takes the window from ~15s to ~1.2s. The cache is thrown away every frame and on any state change, so it never serves a stale list.
+
 ## Won't it break my Ironman save?
 
 No. That's the rule everything is built around: every cache is **checksum-neutral**, returning exactly what stock CK3 would compute. Cached trigger results are tied to an epoch that's invalidated on every script effect and tick boundary, so nothing stale survives a state change, and any trigger caught mutating its scope is dropped from the cache. If a result could ever diverge from vanilla, it isn't cached.
