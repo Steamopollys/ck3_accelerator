@@ -22,7 +22,7 @@ Close the game first, then:
 
 1. Copy everything from the release zip into `binaries`: `winmm.dll`, `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder. The zip layout already matches, and nothing needs renaming.
 2. The bundled `config.toml` has all three optimizations on. To disable one, set it to `false` under `[plugins]`.
-3. Launch CK3. To confirm it loaded, press **F10** for the overlay (below), set `console = true` in `config.toml [core]`, or check `binaries\logs\`.
+3. Launch CK3. To confirm it loaded, press **Ctrl+F10** for the overlay (below), set `console = true` in `config.toml [core]`, or check `binaries\logs\`.
 
 To uninstall, delete the files you added (`winmm.dll`, `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder). The real `winmm.dll` in `System32` is never touched, so there's nothing to put back.
 
@@ -30,7 +30,7 @@ On a CK3 build it hasn't been tested against, it loads in observe-only mode: no 
 
 ## In-game overlay
 
-Press **F10** in-game to open a control panel drawn over CK3. It lists every loaded plugin with its live counters (cache hits, comparisons saved, and so on) and a checkbox to turn each one on or off without leaving the game. F10 again hides it. It ships on, but the panel stays hidden until you press F10, so you won't notice it until you ask for it. To leave it out, set `overlay = false` in `overlay.conf`, or `accel_demo_overlay = false` in `config.toml`.
+Press **Ctrl+F10** in-game to open a control panel drawn over CK3 (plain F10 is CK3's own menu key). It lists every loaded plugin with its live counters (cache hits, comparisons saved, and so on) and a checkbox to turn each one on or off without leaving the game. Ctrl+F10 again hides it. It ships on, but the panel stays hidden until you press Ctrl+F10, so you won't notice it until you ask for it. To leave it out, set `overlay = false` in `overlay.conf`, or `accel_demo_overlay = false` in `config.toml`.
 
 ### The family-list fix, concretely
 

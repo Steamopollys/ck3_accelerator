@@ -2,7 +2,7 @@
 //
 // Draws a Dear ImGui control panel over the running game, proving the framework can put custom UI
 // outside the native game UI and take input. It hooks the D3D11 present path (Present is read from a
-// throwaway swapchain's vtable, so no ck3.exe RE) and renders each frame. Toggle with F10.
+// throwaway swapchain's vtable, so no ck3.exe RE) and renders each frame. Toggle with Ctrl+F10.
 //
 // The panel lists every loaded accelerator plugin from the core's registry, showing each one's live
 // counters and a checkbox that enables/disables it at runtime. The overlay itself installs no game
@@ -95,7 +95,7 @@ void draw_panel() {
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("F10 hides this window. Toggling a plugin takes effect immediately.");
+    ImGui::TextDisabled("Ctrl+F10 hides this window. Toggling a plugin takes effect immediately.");
     ImGui::End();
 }
 
@@ -117,16 +117,16 @@ HRESULT STDMETHODCALLTYPE detour_present(IDXGISwapChain* sc, UINT sync, UINT fla
             g_orig_wndproc = reinterpret_cast<WNDPROC>(
                 ::SetWindowLongPtrW(g_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&wndproc)));
             g_init = true;
-            if (g_host && g_host->log) g_host->log(kLogInfo, "accel_demo_overlay: D3D11 hooked, overlay ready (press F10)");
+            if (g_host && g_host->log) g_host->log(kLogInfo, "accel_demo_overlay: D3D11 hooked, overlay ready (press Ctrl+F10)");
         } else {
             return g_orig_present(sc, sync, flags);
         }
     }
 
-    static bool prev_f10 = false;
-    const bool f10 = (::GetAsyncKeyState(VK_F10) & 0x8000) != 0;
-    if (f10 && !prev_f10) g_show = !g_show;
-    prev_f10 = f10;
+    static bool prev_combo = false;   // Ctrl+F10 toggles (plain F10 is CK3's own menu key)
+    const bool combo = (::GetAsyncKeyState(VK_CONTROL) & 0x8000) && (::GetAsyncKeyState(VK_F10) & 0x8000);
+    if (combo && !prev_combo) g_show = !g_show;
+    prev_combo = combo;
 
     if (g_show && g_rtv) {
         ImGui_ImplDX11_NewFrame();
@@ -201,6 +201,6 @@ PLUGIN_EXPORT int CK3Accel_Init(const CoreApi* host, CK3AccelRegistrar* reg) {
         host->log(kLogWarn, "accel_demo_overlay: Present hook failed; inert"); return 0;
     }
     g_active.store(true, std::memory_order_release);
-    host->log(kLogInfo, "accel_demo_overlay: active (press F10 in-game to toggle the panel)");
+    host->log(kLogInfo, "accel_demo_overlay: active (press Ctrl+F10 in-game to toggle the panel)");
     return 0;
 }
