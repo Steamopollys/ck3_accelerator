@@ -57,6 +57,27 @@ else:
 
 So ~300 rebuilds collapse to one real build plus cheap replays, which is what takes the window from ~15s to ~1.2s. The cache is thrown away every frame and on any state change, so it never serves a stale list.
 
+### The in-tick trigger cache, concretely
+
+During the daily tick the same pure condition gets evaluated over and over on the same scope. Stock recomputes it every time:
+
+```
+each time a trigger is evaluated:
+    run the full evaluation, even if identical to a moment ago
+```
+
+For trigger classes proven to be pure functions of their scope, the cache returns the previous answer instead:
+
+```
+key = (trigger node, this/prev/root scope, saved scopes)
+if key was seen this epoch:
+    return the cached result
+else:
+    result = evaluate the trigger; store it under key
+```
+
+The epoch is bumped on every script effect and at each tick boundary, so a cached answer is only reused while nothing relevant has changed. Combinators, scripted triggers, and the few impure leaves always re-evaluate, which is why the whole thing stays checksum-neutral.
+
 ## Won't it break my Ironman save?
 
 No. That's the rule everything is built around: every cache is **checksum-neutral**, returning exactly what stock CK3 would compute. Cached trigger results are tied to an epoch that's invalidated on every script effect and tick boundary, so nothing stale survives a state change, and any trigger caught mutating its scope is dropped from the cache. If a result could ever diverge from vanilla, it isn't cached.
