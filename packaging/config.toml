@@ -25,5 +25,8 @@ accel_family_lists = true    # O(N) family-list dedup
 accel_family_cache = true    # per-frame family-list cache (needs family_cache.conf)
 accel_tick_cache   = true    # in-tick pure-trigger cache (needs tick_cache.conf)
 
+# In-game control panel, F10 to toggle. On; the panel stays hidden until you press F10.
+accel_demo_overlay = true    # needs overlay.conf
+
 # Off: near-zero benefit (save decompression is ~4% of load, 0 on uncompressed saves).
 accel_save_load = false

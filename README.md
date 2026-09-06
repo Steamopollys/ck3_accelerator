@@ -14,6 +14,25 @@ Late-game and large-family saves are where CK3 hurts, so that's the target. Thre
 
 The release ships with all three on. Turn any off in `config.toml`.
 
+## Installing
+
+The accelerator loads by standing in for a DLL the game already loads (`dxcompiler.dll`) and forwarding the real calls to the original. Everything goes in CK3's `binaries` folder (in Steam: right-click Crusader Kings III, Manage, Browse local files, then open `binaries`).
+
+Close the game first, then:
+
+1. In `binaries`, rename the game's own **`dxcompiler.dll`** to **`dxcompiler_orig.dll`**. The proxy forwards to it, so the shader compiler still works.
+2. Copy everything from the release zip into `binaries`: `dxcompiler.dll` (the proxy), `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder. The zip layout already matches.
+3. That's it. The bundled `config.toml` has all three optimizations on. To disable one, set it to `false` under `[plugins]`.
+4. Launch CK3. To confirm it loaded, press **F10** for the overlay (below), set `console = true` in `config.toml [core]`, or check `binaries\logs\`.
+
+To uninstall, delete the files you added and rename `dxcompiler_orig.dll` back to `dxcompiler.dll`.
+
+On a CK3 build it hasn't been tested against, it loads in observe-only mode: no hooks, just a logged fingerprint so the build can be added. You may see a one-time "untested build" notice.
+
+## In-game overlay
+
+Press **F10** in-game to open a control panel drawn over CK3. It lists every loaded plugin with its live counters (cache hits, comparisons saved, and so on) and a checkbox to turn each one on or off without leaving the game. F10 again hides it. It ships on, but the panel stays hidden until you press F10, so you won't notice it until you ask for it. To leave it out, set `overlay = false` in `overlay.conf`, or `accel_demo_overlay = false` in `config.toml`.
+
 ### The family-list fix, concretely
 
 The original dedup does, for every character, a full scan of the output list before appending:
@@ -95,21 +114,6 @@ I profile before optimizing and drop what isn't worth it:
 
 - **Save decompression.** ~4% of load time on a compressed save, and zero on the uncompressed autosaves and large saves CK3 makes.
 - **Load time in general.** A late-game load is dominated by disk I/O (game database and mods) plus a serial deserialize where the worker pool idles, not by anything a patch like this can cheaply beat. The one algorithmic win there, the family dedup, is already taken.
-
-## Installing
-
-The accelerator loads by standing in for a DLL the game already loads (`dxcompiler.dll`) and forwarding the real calls to the original. Everything goes in CK3's `binaries` folder (in Steam: right-click Crusader Kings III, Manage, Browse local files, then open `binaries`).
-
-Close the game first, then:
-
-1. In `binaries`, rename the game's own **`dxcompiler.dll`** to **`dxcompiler_orig.dll`**. The proxy forwards to it, so the shader compiler still works.
-2. Copy everything from the release zip into `binaries`: `dxcompiler.dll` (the proxy), `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder. The zip layout already matches.
-3. That's it. The bundled `config.toml` has all three optimizations on. To disable one, set it to `false` under `[plugins]`.
-4. Launch CK3. To confirm it loaded, set `console = true` in `config.toml [core]`, or check `binaries\logs\`.
-
-To uninstall, delete the files you added and rename `dxcompiler_orig.dll` back to `dxcompiler.dll`.
-
-On a CK3 build it hasn't been tested against, it loads in observe-only mode: no hooks, just a logged fingerprint so the build can be added. You may see a one-time "untested build" notice.
 
 ## Antivirus / SmartScreen
 
