@@ -84,6 +84,7 @@ thread_local Cache* t_cache = nullptr;          // portrait eval is a parallel-f
 inline Cache& cache() { if (!t_cache) t_cache = new Cache(); return *t_cache; }
 std::atomic<bool> g_cache_ready{false};
 
+int g_enabled = 1;   // runtime on/off, flipped from the overlay panel
 std::atomic<unsigned long long> g_hits{0}, g_builds{0}, g_replayed{0};
 // diagnostics (always logged, so a zero-hit run is explainable)
 std::atomic<unsigned long long> g_entered{0}, g_bp_gate{0}, g_bp_decode{0}, g_bp_nonempty{0}, g_stored{0};
@@ -124,6 +125,7 @@ bool decode(void* ctx, void* list_arg, std::uint8_t* character, std::uint8_t** f
 template <std::uint8_t Selector>
 void detour_builder(void* ctx, void* rdx, std::uint8_t* character) {
     builder_fn orig = g_orig_builder[Selector];
+    if (!g_enabled) { orig(ctx, rdx, character); return; }   // runtime toggle (overlay panel)
     // Cache only during interactive gameplay (after the first UI frame), never inside a day-tick.
     // This keeps the cache out of the save-load and simulation paths; the repeated builds we
     // target are purely the interactive portrait/window evaluation.
@@ -334,5 +336,16 @@ PLUGIN_EXPORT int CK3Accel_Init(const CoreApi* host, CK3AccelRegistrar* reg) {
         static_cast<void*>(b0), static_cast<void*>(c1), static_cast<void*>(b2),
         static_cast<unsigned long>(g_main_tid.load()));
     host->log(kLogInfo, msg);
+
+    if (ck3accel_has_panels(host)) {
+        CK3AccelPanel panel{};
+        panel.struct_size = sizeof(panel);
+        panel.name = "family cache (char window)";
+        panel.enabled = &g_enabled;
+        panel.stat_count = 2;
+        panel.stat_labels[0] = "hits";       panel.stat_values[0] = reinterpret_cast<const unsigned long long*>(&g_hits);
+        panel.stat_labels[1] = "builds";     panel.stat_values[1] = reinterpret_cast<const unsigned long long*>(&g_builds);
+        host->register_panel(&panel);
+    }
     return 0;
 }

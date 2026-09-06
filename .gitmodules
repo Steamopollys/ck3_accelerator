@@ -19,3 +19,6 @@
 	path = third_party/libdeflate
 	url = https://github.com/ebiggers/libdeflate
 	# Pinned to release tag v1.25 (commit c8c56a20f8f621e6a966b716b31f1dedab6a41e3) as of 2026-05-29.
+[submodule "third_party/imgui"]
+	path = third_party/imgui
+	url = https://github.com/ocornut/imgui

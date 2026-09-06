@@ -5,7 +5,7 @@
 # Single-player throwaway saves only. Not for real play.
 demo = true
 
-# trigger class to override (demangled-name prefix) and the value to force.
+# trigger class to override (matched anywhere in the demangled class name) and the value to force.
 # default: every has_trait returns true. Try other leaf triggers, e.g. CIsIncapableTrigger.
 class = CHasTraitTrigger
 force = true

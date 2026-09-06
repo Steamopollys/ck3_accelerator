@@ -19,6 +19,7 @@
 
 #include <ck3accel/core_api.h>
 #include <ck3accel/trigger_cache.h>
+#include <ck3accel/rtti.h>
 
 #include <windows.h>
 #include <psapi.h>
@@ -42,9 +43,8 @@ const CoreApi* g_host = nullptr;
 std::uintptr_t g_module_base = 0;
 std::uint32_t  g_image_size = 0;
 
-const char* const kSigTrigger =
-    "48 8B C4 48 89 58 08 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 C8 FD FF FF";
-// (the core's tick-epoch service owns the effect/tick hooks.)
+// (the core owns the effect/tick hooks via the tick-epoch service, and the trigger evaluator via the
+// trigger service; this plugin registers a handler rather than hooking anything itself.)
 
 // The cacheable classes, matched by demangled-name prefix. Each one had 0 mismatch over the 184-day
 // probe and is a leaf predicate reading a stable scope property. Combinators, wrappers, scripted
@@ -95,8 +95,8 @@ constexpr std::size_t kCtxThis=0x00,kCtxPrev=0x08,kCtxRoot=0x10,kCtxStore=0x18,k
 constexpr std::size_t kStoreArr=0x00,kStoreCnt=0x0C,kStoreFb=0x3D0,kFbArr=0x18,kFbCnt=0x24;
 constexpr std::size_t kPrimStride=0x20,kFbStride=0x18,kEntryRef=0x08,kMaxScopes=64;
 
-using trigger_fn = char (*)(void* node, std::uint8_t* ctx, std::uint8_t skip);
-trigger_fn g_orig_trigger = nullptr;
+// trigger eval arrives via the core's shared trigger service (coexists with the override demo);
+// next() in tick_handler continues the chain to the original evaluator.
 
 std::atomic<bool>          g_active{false};
 // Epoch + in-tick come from the core's shared tick-epoch service (g_host->tick_epoch / in_tick).
@@ -109,6 +109,7 @@ constexpr std::size_t kDecSlots = 1u << 14;
 struct Dec { std::atomic<std::uint64_t> vt{0}; std::atomic<std::uint8_t> d{0}; };
 Dec g_dec[kDecSlots];
 
+int g_enabled = 1;   // runtime on/off, flipped from the overlay panel
 std::atomic<unsigned long long> g_hit{0}, g_miss{0}, g_poison{0};
 unsigned long long g_prev_hit=0, g_prev_miss=0;
 
@@ -117,33 +118,6 @@ inline std::size_t dec_home(std::uint64_t vt) {
     return static_cast<std::size_t>((vt >> 4) * 0x9E3779B97F4A7C15ull >> 50) & (kDecSlots - 1);
 }
 
-std::uint64_t read_vtable(void* node) {
-    __try { return *reinterpret_cast<std::uint64_t*>(node); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
-}
-inline bool in_image(const void* q, std::size_t n=8) {
-    const std::uintptr_t a = reinterpret_cast<std::uintptr_t>(q);
-    return g_module_base && a >= g_module_base && a + n <= g_module_base + g_image_size;
-}
-// Resolve the node's RTTI class name (SEH-guarded); returns false on any bad read.
-bool class_name(std::uint64_t vt, char* out, std::size_t cap) {
-    __try {
-        const std::uint8_t* v = reinterpret_cast<const std::uint8_t*>(vt);
-        if (!in_image(v - 8)) return false;
-        const std::uint8_t* col = *reinterpret_cast<const std::uint8_t* const*>(v - 8);
-        if (!in_image(col, 24)) return false;
-        std::uint32_t td_rva; std::memcpy(&td_rva, col + 0xC, 4);
-        const std::uint8_t* td = reinterpret_cast<const std::uint8_t*>(g_module_base) + td_rva;
-        if (!in_image(td, 0x20)) return false;
-        const char* m = reinterpret_cast<const char*>(td + 0x10);
-        if (m[0] != '.' || m[1] != '?') return false;
-        std::size_t o = 0;
-        for (const char* c = m + 4; *c && o + 1 < cap && c < m + 300; ++c) {
-            if (c[0] == '@' && c[1] == '@') { ++c; continue; }
-            out[o++] = (*c == '@') ? ':' : *c;
-        }
-        out[o] = 0; return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
 bool name_whitelisted(const char* nm) {
     for (const char* w : kWhitelist) {
         const std::size_t n = std::strlen(w);
@@ -160,7 +134,7 @@ std::uint8_t decision_for(std::uint64_t vt) {
         if (cur == vt) return g_dec[i].d.load(std::memory_order_relaxed);
         if (cur == 0) {
             char nm[256] = {0};
-            const std::uint8_t d = (class_name(vt, nm, sizeof(nm)) && name_whitelisted(nm)) ? 1 : 2;
+            const std::uint8_t d = (ck3accel::rtti::class_name({g_module_base, g_image_size}, vt, nm, sizeof(nm)) && name_whitelisted(nm)) ? 1 : 2;
             std::uint64_t exp = 0;
             if (g_dec[i].vt.compare_exchange_strong(exp, vt, std::memory_order_relaxed)) {
                 g_dec[i].d.store(d, std::memory_order_relaxed); return d;
@@ -177,7 +151,7 @@ void mark_impure(std::uint64_t vt) {   // a whitelisted node that mutated scope 
         if (g_dec[i].vt.load(std::memory_order_relaxed) == vt) {
             // Log the class name once, on the 1→2 transition, so the whitelist can be corrected.
             if (g_dec[i].d.exchange(2, std::memory_order_relaxed) != 2 && g_host && g_host->log) {
-                char nm[256] = "?"; class_name(vt, nm, sizeof(nm));
+                char nm[256] = "?"; ck3accel::rtti::class_name({g_module_base, g_image_size}, vt, nm, sizeof(nm));
                 char msg[320];
                 std::snprintf(msg, sizeof(msg),
                     "accel_tick_cache: POISONED whitelisted class '%s' (mutates scope) — excluded; drop from whitelist", nm);
@@ -237,31 +211,33 @@ bool read_counts(std::uint8_t* ctx, std::uint32_t* p, std::uint32_t* f) {
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
-char detour_trigger(void* node, std::uint8_t* ctx, std::uint8_t skip) {
-    // Cheap register tests first, then the indirect in_tick() call (skipped on the null-arg path).
-    if (!g_active.load(std::memory_order_relaxed) || !node || !ctx || g_host->in_tick() == 0) {
-        return g_orig_trigger(node, ctx, skip);
+// Registered with the core's shared trigger service. next() continues the chain (downstream handlers,
+// then the original evaluator).
+char tick_handler(void* node, void* ctxv, unsigned char skip, ck3accel_trigger_next next, void* next_ctx, void*) {
+    std::uint8_t* ctx = static_cast<std::uint8_t*>(ctxv);
+    if (!g_enabled || !g_active.load(std::memory_order_relaxed) || !node || !ctx || g_host->in_tick() == 0) {
+        return next(node, ctxv, skip, next_ctx);
     }
-    const std::uint64_t vt = read_vtable(node);
-    if (decision_for(vt) != 1) return g_orig_trigger(node, ctx, skip);   // not a cacheable pure class
+    const std::uint64_t vt = ck3accel::rtti::read_vtable(node);
+    if (decision_for(vt) != 1) return next(node, ctxv, skip, next_ctx);   // not a cacheable pure class
 
     if (!t_cache) t_cache = new ck3accel::cache::EpochCache<kCacheSlots>();
     ck3accel::cache::ContextView v{};
     ck3accel::cache::SavedScope prim[kMaxScopes], fb[kMaxScopes];
-    if (!read_context(ctx, node, skip, &v, prim, fb)) return g_orig_trigger(node, ctx, skip);
+    if (!read_context(ctx, node, skip, &v, prim, fb)) return next(node, ctxv, skip, next_ctx);
     const ck3accel::cache::ContextKey key = ck3accel::cache::make_key(v);
     const std::uint32_t epoch = g_host->tick_epoch();
 
     std::uint8_t cached = 0;
-    if (t_cache->lookup(key, epoch, &cached)) {          // HIT: serve the cached result, skip orig
+    if (t_cache->lookup(key, epoch, &cached)) {          // HIT: serve the cached result, skip the chain
         g_hit.fetch_add(1, std::memory_order_relaxed);
         return static_cast<char>(cached);
     }
-    // Miss: run it once, watching for a whitelisted node that unexpectedly mutates scope. Node eval
-    // is single-threaded, so read_context's counts are still the pre-call snapshot; reuse them.
+    // Miss: run the chain once, watching for a whitelisted node that unexpectedly mutates scope. Node
+    // eval is single-threaded, so read_context's counts are still the pre-call snapshot; reuse them.
     const std::uint32_t p0 = static_cast<std::uint32_t>(v.saved_count);
     const std::uint32_t f0 = static_cast<std::uint32_t>(v.fallback_count);
-    const char rc = g_orig_trigger(node, ctx, skip);
+    const char rc = next(node, ctxv, skip, next_ctx);
     std::uint32_t p1=0,f1=0; const bool h1 = read_counts(ctx,&p1,&f1);
     if (h1 && (p0 != p1 || f0 != f1)) { mark_impure(vt); g_poison.fetch_add(1, std::memory_order_relaxed); return rc; }
     t_cache->store(key, epoch, static_cast<std::uint8_t>(rc));
@@ -309,22 +285,28 @@ PLUGIN_EXPORT const CK3AccelPluginInfo* CK3Accel_Query(uint32_t v){ (void)v; ret
 
 PLUGIN_EXPORT int CK3Accel_Init(const CoreApi* host, CK3AccelRegistrar* reg) {
     g_host = host;
-    if (!host || !host->log || !host->scan || !host->install_hook || !reg) return 1;
+    if (!host || !host->log || !reg) return 1;
     if (!conf_enabled()) { host->log(kLogInfo,"accel_tick_cache: disabled (set tick_cache=true in tick_cache.conf); inert"); return 0; }
 
-    // No epoch/in-tick signals means no sound cache, so require the service and bail if absent.
-    if (!ck3accel_has_tick_epoch(host)) { host->log(kLogWarn,"accel_tick_cache: core lacks the tick-epoch service; inert"); return 0; }
-    if (!host->ensure_tick_epoch()) { host->log(kLogWarn,"accel_tick_cache: shared tick-epoch service unavailable (dev probe holding the effect/tick hooks?); inert"); return 0; }
+    // Needs the epoch/in-tick signals AND the shared trigger hook; bail if either is missing.
+    if (!ck3accel_has_tick_epoch(host) || !host->ensure_tick_epoch()) { host->log(kLogWarn,"accel_tick_cache: tick-epoch service unavailable; inert"); return 0; }
+    if (!ck3accel_has_trigger_service(host) || !host->ensure_trigger_service()) { host->log(kLogWarn,"accel_tick_cache: trigger service unavailable; inert"); return 0; }
 
     g_module_base = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
     { MODULEINFO mi{}; if (::GetModuleInformation(::GetCurrentProcess(), ::GetModuleHandleW(nullptr), &mi, sizeof(mi))) g_image_size = mi.SizeOfImage; }
-    void* trig = host->scan(kSigTrigger);
-    if (!trig) { host->log(kLogWarn,"accel_tick_cache: trigger signature NOT FOUND; inert"); return 0; }
-    if (!(host->install_hook(reg->hook_set, trig, reinterpret_cast<void*>(&detour_trigger), reinterpret_cast<void**>(&g_orig_trigger))!=nullptr && g_orig_trigger)) {
-        host->log(kLogWarn,"accel_tick_cache: trigger hook failed; inert"); return 0;
-    }
+    host->register_trigger_handler(&tick_handler, nullptr, /*priority=*/0);   // inner (after any override)
     g_active.store(true, std::memory_order_release);
     if (HANDLE t = ::CreateThread(nullptr, 0, &diag_thread_main, nullptr, 0, nullptr)) ::CloseHandle(t);
+    if (ck3accel_has_panels(host)) {
+        CK3AccelPanel panel{};
+        panel.struct_size = sizeof(panel);
+        panel.name = "tick cache (in-tick triggers)";
+        panel.enabled = &g_enabled;
+        panel.stat_count = 2;
+        panel.stat_labels[0] = "hits";   panel.stat_values[0] = reinterpret_cast<const unsigned long long*>(&g_hit);
+        panel.stat_labels[1] = "misses"; panel.stat_values[1] = reinterpret_cast<const unsigned long long*>(&g_miss);
+        host->register_panel(&panel);
+    }
     host->log(kLogInfo,"accel_tick_cache: active (whitelisted pure-trigger cache, in-tick, checksum-neutral)");
     return 0;
 }

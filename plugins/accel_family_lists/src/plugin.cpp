@@ -76,6 +76,7 @@ std::uint8_t** g_db_global      = nullptr;   // address of the character-db poin
 std::uint8_t** g_null_global    = nullptr;   // address of the null-character sentinel pointer
 PdxU32Array*   g_empty_array    = nullptr;   // shared empty CPdxArray used for a null family block
 std::atomic<bool> g_active{false};
+int g_enabled = 1;   // runtime on/off, flipped from the overlay panel
 
 // ---- stats (info log every 60 s while they change) -----------------------------------------
 std::atomic<unsigned long long> g_builds{0};          // mirror resyncs (≈ list builds)
@@ -162,8 +163,8 @@ void note_pushed(Mirror& m, ScopeList* list) {
 
 // ---- detours ---------------------------------------------------------------------------------
 void detour_add_unique(ScopeList* list, std::uint8_t* character) {
-    if (!g_active.load(std::memory_order_relaxed) || !list || !character || !*g_null_global) {
-        g_orig_add_unique(list, character);
+    if (!g_enabled || !g_active.load(std::memory_order_relaxed) || !list || !character || !*g_null_global) {
+        g_orig_add_unique(list, character);   // !g_enabled = runtime toggle (overlay panel)
         return;
     }
     GameEngine e;
@@ -176,8 +177,8 @@ void detour_add_unique(ScopeList* list, std::uint8_t* character) {
 }
 
 void detour_walker(void* ctx, std::uint8_t* character, std::uint8_t* skipctx) {
-    if (!g_active.load(std::memory_order_relaxed) || !ctx || !character || !*g_null_global) {
-        g_orig_walker(ctx, character, skipctx);
+    if (!g_enabled || !g_active.load(std::memory_order_relaxed) || !ctx || !character || !*g_null_global) {
+        g_orig_walker(ctx, character, skipctx);   // !g_enabled = runtime toggle (overlay panel)
         return;
     }
     // ctx -> pair { filter*, list* }
@@ -311,6 +312,16 @@ PLUGIN_EXPORT int CK3Accel_Init(const CoreApi* host, CK3AccelRegistrar* reg) {
         "accel_family_lists: active (walker=%p add_unique=%p push_back=%p db=%p)",
         static_cast<void*>(walker), static_cast<void*>(addu), pb1, static_cast<void*>(g_db_global));
     host->log(kLogInfo, msg);
+    if (ck3accel_has_panels(host)) {
+        CK3AccelPanel panel{};
+        panel.struct_size = sizeof(panel);
+        panel.name = "family list dedup (O(N))";
+        panel.enabled = &g_enabled;
+        panel.stat_count = 2;
+        panel.stat_labels[0] = "builds";           panel.stat_values[0] = reinterpret_cast<const unsigned long long*>(&g_builds);
+        panel.stat_labels[1] = "compares avoided"; panel.stat_values[1] = reinterpret_cast<const unsigned long long*>(&g_saved_compares);
+        host->register_panel(&panel);
+    }
     if (HANDLE th = ::CreateThread(nullptr, 0, &stats_thread_main, nullptr, 0, nullptr)) ::CloseHandle(th);
     return 0;
 }

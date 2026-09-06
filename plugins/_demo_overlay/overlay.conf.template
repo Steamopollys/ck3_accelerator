@@ -1,0 +1,3 @@
+# accel_demo_overlay: copy next to ck3accel_core.dll as overlay.conf. Off unless set true.
+# Draws an ImGui overlay over the game; press F10 in-game to toggle it.
+overlay = true

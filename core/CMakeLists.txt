@@ -15,6 +15,8 @@ add_library(ck3accel_core_objs OBJECT
     src/crash_sentinel.cpp
     src/plugin_loader.cpp
     src/tick_epoch.cpp
+    src/panel_registry.cpp
+    src/trigger_service.cpp
 )
 
 target_include_directories(ck3accel_core_objs

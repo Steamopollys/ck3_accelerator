@@ -10,6 +10,7 @@
 // desyncs multiplayer. Use it only on a throwaway single-player save, never on one you care about.
 
 #include <ck3accel/core_api.h>
+#include <ck3accel/rtti.h>
 
 #include <windows.h>
 #include <psapi.h>
@@ -33,51 +34,21 @@ const CoreApi* g_host = nullptr;
 std::uintptr_t g_module_base = 0;
 std::uint32_t  g_image_size = 0;
 
-// Same trigger-evaluator entry the tick cache hooks.
-const char* const kSigTrigger =
-    "48 8B C4 48 89 58 08 48 89 70 18 48 89 78 20 55 41 54 41 55 41 56 41 57 48 8D A8 C8 FD FF FF";
-
-using trigger_fn = char (*)(void* node, std::uint8_t* ctx, std::uint8_t skip);
-trigger_fn g_orig = nullptr;
+// Trigger eval comes through the core's shared trigger service (so this coexists with tick_cache).
 
 std::atomic<bool> g_active{false};
+int  g_enabled = 0;                          // runtime on/off; OFF until toggled from the overlay panel
 char g_force = 1;                            // value we force the matched trigger to return
-char g_class[128] = "CHasTraitTrigger";      // trigger class (demangled-name prefix) to override
+char g_class[128] = "CHasTraitTrigger";      // trigger class to override (matched as a demangled-name substring)
 std::atomic<unsigned long long> g_overrides{0};
-unsigned long long g_prev = 0;
+std::atomic<unsigned long long> g_seen{0};        // diagnostic: trigger evals seen while enabled
+char g_first_class[256] = {0};                    // diagnostic: first RTTI name we resolved
+std::atomic<bool> g_first_logged{false};
 
 // ---- per-vtable decision cache: 0 unknown, 1 override, 2 leave-alone -------------------------
 constexpr std::size_t kSlots = 1u << 13;
 struct Dec { std::atomic<std::uint64_t> vt{0}; std::atomic<std::uint8_t> d{0}; };
 Dec g_dec[kSlots];
-
-std::uint64_t read_vtable(void* node) {
-    __try { return *reinterpret_cast<std::uint64_t*>(node); } __except (EXCEPTION_EXECUTE_HANDLER) { return 0; }
-}
-inline bool in_image(const void* q, std::size_t n = 8) {
-    const std::uintptr_t a = reinterpret_cast<std::uintptr_t>(q);
-    return g_module_base && a >= g_module_base && a + n <= g_module_base + g_image_size;
-}
-// Resolve a node's RTTI class name (SEH-guarded), same walk the tick cache uses.
-bool class_name(std::uint64_t vt, char* out, std::size_t cap) {
-    __try {
-        const std::uint8_t* v = reinterpret_cast<const std::uint8_t*>(vt);
-        if (!in_image(v - 8)) return false;
-        const std::uint8_t* col = *reinterpret_cast<const std::uint8_t* const*>(v - 8);
-        if (!in_image(col, 24)) return false;
-        std::uint32_t td_rva; std::memcpy(&td_rva, col + 0xC, 4);
-        const std::uint8_t* td = reinterpret_cast<const std::uint8_t*>(g_module_base) + td_rva;
-        if (!in_image(td, 0x20)) return false;
-        const char* m = reinterpret_cast<const char*>(td + 0x10);
-        if (m[0] != '.' || m[1] != '?') return false;
-        std::size_t o = 0;
-        for (const char* c = m + 4; *c && o + 1 < cap && c < m + 300; ++c) {
-            if (c[0] == '@' && c[1] == '@') { ++c; continue; }
-            out[o++] = (*c == '@') ? ':' : *c;
-        }
-        out[o] = 0; return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-}
 
 std::uint8_t decision_for(std::uint64_t vt) {
     if (!vt) return 2;
@@ -87,8 +58,12 @@ std::uint8_t decision_for(std::uint64_t vt) {
         if (cur == vt) return g_dec[i].d.load(std::memory_order_relaxed);
         if (cur == 0) {
             char nm[256] = {0};
-            const std::size_t n = std::strlen(g_class);
-            const std::uint8_t d = (class_name(vt, nm, sizeof(nm)) && std::strncmp(nm, g_class, n) == 0) ? 1 : 2;
+            const bool named = ck3accel::rtti::class_name({g_module_base, g_image_size}, vt, nm, sizeof(nm));
+            if (named && !g_first_logged.load(std::memory_order_relaxed)) {   // capture one sample name
+                std::strncpy(g_first_class, nm, sizeof(g_first_class) - 1);
+                g_first_logged.store(true, std::memory_order_relaxed);
+            }
+            const std::uint8_t d = (named && std::strstr(nm, g_class) != nullptr) ? 1 : 2;
             std::uint64_t exp = 0;
             if (g_dec[i].vt.compare_exchange_strong(exp, vt, std::memory_order_relaxed)) {
                 g_dec[i].d.store(d, std::memory_order_relaxed); return d;
@@ -100,26 +75,33 @@ std::uint8_t decision_for(std::uint64_t vt) {
     return 2;
 }
 
-char detour(void* node, std::uint8_t* ctx, std::uint8_t skip) {
-    if (!g_active.load(std::memory_order_relaxed) || !node) return g_orig(node, ctx, skip);
-    if (decision_for(read_vtable(node)) == 1) {          // matched class -> override the engine's answer
+char override_handler(void* node, void* ctx, unsigned char skip, ck3accel_trigger_next next, void* next_ctx, void*) {
+    if (!g_enabled || !g_active.load(std::memory_order_relaxed) || !node) return next(node, ctx, skip, next_ctx);
+    g_seen.fetch_add(1, std::memory_order_relaxed);
+    if (decision_for(ck3accel::rtti::read_vtable(node)) == 1) {   // matched class -> override the engine's answer
         g_overrides.fetch_add(1, std::memory_order_relaxed);
         return g_force;
     }
-    return g_orig(node, ctx, skip);
+    return next(node, ctx, skip, next_ctx);
 }
 
-// Low-frequency proof-of-life: reports how many engine evaluations we overrode.
+// Diagnostic heartbeat: triggers seen while enabled, how many matched the class, and one sample name.
 DWORD WINAPI diag_thread(LPVOID) {
+    bool logged_class = false;
+    unsigned long long prev = 0;
     for (;;) {
         ::Sleep(5000);
         if (!g_active.load(std::memory_order_relaxed) || !g_host || !g_host->log) continue;
-        const unsigned long long n = g_overrides.load();
-        const unsigned long long d = n - g_prev; g_prev = n;
-        if (d == 0) continue;
-        char msg[160];
-        std::snprintf(msg, sizeof(msg), "accel_demo: overrode %llu '%s' checks -> %s (total %llu)",
-                      d, g_class, g_force ? "true" : "false", n);
+        if (!logged_class && g_first_logged.load(std::memory_order_relaxed)) {
+            char m[320]; std::snprintf(m, sizeof(m), "accel_demo: matching class '%s'; first RTTI name seen '%s'", g_class, g_first_class);
+            g_host->log(kLogInfo, m); logged_class = true;
+        }
+        const unsigned long long seen = g_seen.load(), ov = g_overrides.load();
+        const unsigned long long d = ov - prev; prev = ov;
+        if (seen == 0 && ov == 0) continue;
+        char msg[192];
+        std::snprintf(msg, sizeof(msg), "accel_demo: seen=%llu overrode=%llu (+%llu) -> %s",
+                      seen, ov, d, g_force ? "true" : "false");
         g_host->log(kLogInfo, msg);
     }
 }
@@ -161,20 +143,26 @@ PLUGIN_EXPORT const CK3AccelPluginInfo* CK3Accel_Query(uint32_t v) { (void)v; re
 
 PLUGIN_EXPORT int CK3Accel_Init(const CoreApi* host, CK3AccelRegistrar* reg) {
     g_host = host;
-    if (!host || !host->log || !host->scan || !host->install_hook || !reg) return 1;
+    if (!host || !host->log || !reg) return 1;
     if (!read_conf()) { host->log(kLogInfo, "accel_demo: disabled (set demo=true in demo.conf); inert"); return 0; }
     g_module_base = reinterpret_cast<std::uintptr_t>(::GetModuleHandleW(nullptr));
     { MODULEINFO mi{}; if (::GetModuleInformation(::GetCurrentProcess(), ::GetModuleHandleW(nullptr), &mi, sizeof(mi))) g_image_size = mi.SizeOfImage; }
-    void* trig = host->scan(kSigTrigger);
-    if (!trig) { host->log(kLogWarn, "accel_demo: trigger signature NOT FOUND (conflicts with accel_tick_cache? disable it); inert"); return 0; }
-    if (!(host->install_hook(reg->hook_set, trig, reinterpret_cast<void*>(&detour), reinterpret_cast<void**>(&g_orig)) != nullptr && g_orig)) {
-        host->log(kLogWarn, "accel_demo: trigger hook failed; inert"); return 0;
+    if (!ck3accel_has_trigger_service(host) || !host->ensure_trigger_service()) {
+        host->log(kLogWarn, "accel_demo: shared trigger service unavailable; inert"); return 0;
     }
+    host->register_trigger_handler(&override_handler, nullptr, /*priority=*/100);  // outermost (before caches)
     g_active.store(true, std::memory_order_release);
     if (HANDLE t = ::CreateThread(nullptr, 0, &diag_thread, nullptr, 0, nullptr)) ::CloseHandle(t);
-    char msg[192];
-    std::snprintf(msg, sizeof(msg), "accel_demo: ACTIVE — overriding '%s' -> %s (DEMO: changes gameplay, breaks Ironman achievements)",
-                  g_class, g_force ? "true" : "false");
-    host->log(kLogWarn, msg);
+    if (ck3accel_has_panels(host)) {
+        CK3AccelPanel panel{};
+        panel.struct_size = sizeof(panel);
+        panel.name = "has_trait override (demo)";
+        panel.enabled = &g_enabled;
+        panel.stat_count = 2;
+        panel.stat_labels[0] = "overrides"; panel.stat_values[0] = reinterpret_cast<const unsigned long long*>(&g_overrides);
+        panel.stat_labels[1] = "seen";      panel.stat_values[1] = reinterpret_cast<const unsigned long long*>(&g_seen);
+        host->register_panel(&panel);
+    }
+    host->log(kLogInfo, "accel_demo: loaded (off; enable from the overlay panel). Changes gameplay, not checksum-safe.");
     return 0;
 }

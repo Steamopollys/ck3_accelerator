@@ -7,6 +7,8 @@
 #include "paths.h"
 #include "pattern_scanner.h"
 #include "tick_epoch.h"
+#include "trigger_service.h"
+#include "panel_registry.h"
 #include "plugin_gate.h"
 #include "telemetry.h"
 #include "version_detect.h"
@@ -116,6 +118,17 @@ uint32_t core_api_tick_epoch()        { return tick_epoch_get(); }
 int      core_api_in_tick()           { return tick_epoch_in_tick(); }
 void     core_api_bump_epoch()        { tick_epoch_bump(); }
 
+// ---- control-panel registry -----------------------------------------------
+void core_api_register_panel(const CK3AccelPanel* p) { panel_register(p); }
+int  core_api_panel_count()                          { return panel_count(); }
+const CK3AccelPanel* core_api_panel_at(int i)        { return panel_get(i); }
+
+// ---- shared trigger-evaluator service -------------------------------------
+int  core_api_ensure_trigger_service() { return trigger_service_ensure(); }
+void core_api_register_trigger_handler(ck3accel_trigger_handler h, void* user, int prio) {
+    trigger_service_register(h, user, prio);
+}
+
 } // namespace
 
 const CoreApi* build_core_api() {
@@ -133,6 +146,11 @@ const CoreApi* build_core_api() {
         a.tick_epoch            = &core_api_tick_epoch;
         a.in_tick               = &core_api_in_tick;
         a.bump_epoch            = &core_api_bump_epoch;
+        a.register_panel        = &core_api_register_panel;
+        a.panel_count           = &core_api_panel_count;
+        a.panel_at              = &core_api_panel_at;
+        a.ensure_trigger_service   = &core_api_ensure_trigger_service;
+        a.register_trigger_handler = &core_api_register_trigger_handler;
         return a;
     }();
     return &api;

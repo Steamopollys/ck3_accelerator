@@ -26,3 +26,6 @@ add_subdirectory(accel_tick_cache)
 
 # accel_demo: opt-in gameplay-change DEMO (not shipped).
 add_subdirectory(_demo_unleashed)
+
+# accel_demo_overlay: opt-in ImGui overlay demo (not shipped).
+add_subdirectory(_demo_overlay)
