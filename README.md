@@ -16,16 +16,15 @@ The release ships with all three on. Turn any off in `config.toml`.
 
 ## Installing
 
-The accelerator loads by standing in for a DLL the game already loads (`dxcompiler.dll`) and forwarding the real calls to the original. Everything goes in CK3's `binaries` folder (in Steam: right-click Crusader Kings III, Manage, Browse local files, then open `binaries`).
+The accelerator loads by standing in for `winmm.dll`, a Windows library CK3 loads but doesn't ship, and forwarding every call to the real one in `System32`. Because the real `winmm.dll` lives in Windows and not the game folder, nothing gets renamed: you just drop the files in. Everything goes in CK3's `binaries` folder (in Steam: right-click Crusader Kings III, Manage, Browse local files, then open `binaries`).
 
 Close the game first, then:
 
-1. In `binaries`, rename the game's own **`dxcompiler.dll`** to **`dxcompiler_orig.dll`**. The proxy forwards to it, so the shader compiler still works.
-2. Copy everything from the release zip into `binaries`: `dxcompiler.dll` (the proxy), `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder. The zip layout already matches.
-3. That's it. The bundled `config.toml` has all three optimizations on. To disable one, set it to `false` under `[plugins]`.
-4. Launch CK3. To confirm it loaded, press **F10** for the overlay (below), set `console = true` in `config.toml [core]`, or check `binaries\logs\`.
+1. Copy everything from the release zip into `binaries`: `winmm.dll`, `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder. The zip layout already matches, and nothing needs renaming.
+2. The bundled `config.toml` has all three optimizations on. To disable one, set it to `false` under `[plugins]`.
+3. Launch CK3. To confirm it loaded, press **F10** for the overlay (below), set `console = true` in `config.toml [core]`, or check `binaries\logs\`.
 
-To uninstall, delete the files you added and rename `dxcompiler_orig.dll` back to `dxcompiler.dll`.
+To uninstall, delete the files you added (`winmm.dll`, `ck3accel_core.dll`, `versions.json`, `config.toml`, the `.conf` files, and the `plugins\` folder). The real `winmm.dll` in `System32` is never touched, so there's nothing to put back.
 
 On a CK3 build it hasn't been tested against, it loads in observe-only mode: no hooks, just a logged fingerprint so the build can be added. You may see a one-time "untested build" notice.
 

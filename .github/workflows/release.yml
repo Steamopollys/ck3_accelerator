@@ -44,7 +44,7 @@ jobs:
           New-Item -ItemType Directory -Force "$stage/plugins" | Out-Null
 
           # Runtime files, laid out exactly as they go into CK3's binaries folder.
-          Copy-Item build/default/proxy_dxc/Release/dxcompiler.dll "$stage/"
+          Copy-Item build/default/proxy_winmm/Release/winmm.dll "$stage/"
           Copy-Item build/default/core/Release/ck3accel_core.dll   "$stage/"
           Copy-Item build/default/plugins/accel_family_lists/Release/accel_family_lists.dll "$stage/plugins/"
           Copy-Item build/default/plugins/accel_family_cache/Release/accel_family_cache.dll "$stage/plugins/"

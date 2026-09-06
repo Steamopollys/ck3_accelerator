@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 project(ck3accel
     VERSION 0.0.1
     DESCRIPTION "CK3 Accelerator: runtime engine accelerator for Crusader Kings III"
-    LANGUAGES CXX C
+    LANGUAGES CXX C ASM_MASM
 )
 
 # Enforce out-of-source builds
@@ -20,15 +20,15 @@ if(NOT MSVC)
     message(FATAL_ERROR "ck3accel requires MSVC. Detected: ${CMAKE_CXX_COMPILER_ID}")
 endif()
 
-# MSVC flags
+# MSVC flags, scoped to C/C++ so ml64 (the winmm proxy's assembler) doesn't get them.
 add_compile_options(
-    /W4              # high warning level
-    /WX              # warnings as errors
-    /permissive-     # strict conformance
-    /Zc:__cplusplus  # report correct __cplusplus value
-    /utf-8           # source + execution charset
-    /EHsc            # standard C++ exceptions
-    /MP              # parallel compile
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/W4>"              # high warning level
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/WX>"             # warnings as errors
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/permissive->"    # strict conformance
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/Zc:__cplusplus>" # report correct __cplusplus value
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/utf-8>"          # source + execution charset
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/EHsc>"           # standard C++ exceptions
+    "$<$<COMPILE_LANGUAGE:C,CXX>:/MP>"             # parallel compile
 )
 add_compile_definitions(
     NOMINMAX
@@ -68,4 +68,5 @@ target_include_directories(picosha2 INTERFACE third_party/picosha2)
 enable_testing()
 add_subdirectory(core)
 add_subdirectory(proxy_dxc)
+add_subdirectory(proxy_winmm)
 add_subdirectory(plugins)
